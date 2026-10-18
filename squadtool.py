@@ -13,15 +13,16 @@ else:
     ICON_DIR = Path(__file__).resolve().parent / "class_icon"
 # Elite-Spezialisierungen je Klasse
 SPECIALIZATIONS = {
-    "Guardian": ["Core", "Dragonhunter", "Firebrand", "Willbender", "Luminary"],
-    "Warrior": ["Core", "Berserker", "Spellbreaker", "Bladesworn", "Paragon"],
-    "Engineer": ["Core", "Scrapper", "Holosmith", "Mechanist", "Amalgam"],
-    "Ranger": ["Core", "Druid", "Soulbeast", "Untamed", "Galeshot"],
-    "Thief": ["Core", "Daredevil", "Deadeye", "Specter", "Antiquary"],
     "Elementalist": ["Core", "Tempest", "Weaver", "Catalyst", "Evoker"],
     "Mesmer": ["Core", "Chronomancer", "Mirage", "Virtuoso", "Troubadour"],
     "Necromancer": ["Core", "Reaper", "Scourge", "Harbinger", "Ritualist"],
-    "Revenant": ["Core", "Herald", "Renegade", "Vindicator", "Conduit"],
+    "Engineer": ["Core", "Scrapper", "Holosmith", "Mechanist", "Amalgam"],
+    "Ranger": ["Core", "Druid", "Soulbeast", "Untamed", "Galeshot"],
+    "Thief": ["Core", "Daredevil", "Deadeye", "Specter", "Antiquary"],
+    "Guardian": ["Core", "Dragonhunter", "Firebrand", "Willbender", "Luminary"],
+    "Warrior": ["Core", "Berserker", "Spellbreaker", "Bladesworn", "Paragon"],
+    "Revenant": ["Core", "Herald", "Renegade", "Vindicator", "Conduit"],    
+    "Allgemein": ["Core", "Quick","Alacrity", "Heal", "Tank", "Toolkit", "Block", "pDPS", "cDPS", "Invul", "Stab", "Portal"],
 }
 
 
@@ -84,8 +85,14 @@ class Organizer:
         main.pack(fill="both", expand=True, padx=10, pady=10)
 
         # LINKS: Squad
-        self.left = tk.Frame(main, bg="#2b3441")
-        self.left.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        self.left = tk.Frame(main, bg="#2b3441", width=420)
+        self.left.pack(
+            side="left",
+            fill="both",
+            expand=False,
+            padx=(0, 5)
+        )
+        self.left.pack_propagate(False)
 
         tk.Label(
             self.left, text="SQUAD",
@@ -153,8 +160,13 @@ class Organizer:
         ).pack(pady=5)
 
         # RECHTS: Build-Bibliothek
-        self.right = tk.Frame(main, bg="#2b3441", width=520)
-        self.right.pack(side="right", fill="both", expand=True, padx=(5, 0))
+        self.right = tk.Frame(main, bg="#2b3441")
+        self.right.pack(
+            side="right",
+            fill="both",
+            expand=True,
+            padx=(5, 0)
+        )
 
         tk.Label(
             self.right, text="BUILDS",
@@ -242,13 +254,13 @@ class Organizer:
         
         tk.Button(
             toolbar,
-            text="Squad + Builds exportieren",
+            text="Exportieren",
             command=self.export_data
         ).pack(side="left", padx=(0, 5))
         
         tk.Button(
             toolbar,
-            text="Squad + Builds importieren",
+            text="Importieren",
             command=self.import_data
         ).pack(side="left", padx=(0, 5))
         tk.Button(
@@ -265,27 +277,37 @@ class Organizer:
         
         
         self.details.pack(fill="x", side="bottom")
-
+        
+        self.add_default_builds()
         self.refresh_squad()
         self.refresh_builds()
     
     
     def clear_squad(self):
-        if not any(entry["build"] is not None for entry in SQUAD):
-            messagebox.showinfo("Clear Squad", "Der Squad ist bereits leer.")
-            return
-    
         if not messagebox.askyesno(
             "Clear Squad",
-            "Möchtest du alle Builds aus dem Squad entfernen?"
+            "Möchtest du den Squad auf eine Gruppe mit 5 leeren Slots zurücksetzen?"
         ):
             return
     
-        for entry in SQUAD:
-            entry["build"] = None
+        # Squad leeren
+        SQUAD.clear()
     
+        # Eine Gruppe mit 5 Slots wiederherstellen
+        GROUP_SLOTS.clear()
+        GROUP_SLOTS[0] = 5
+    
+        # Fünf leere Slots erstellen
+        for slot in range(5):
+            SQUAD.append({
+                "build": None,
+                "group": 0,
+                "slot": slot
+            })
+    
+        # Anzeige aktualisieren
         self.refresh_squad()
-        
+            
     def delete_build(self):
         build = getattr(self, "selected_build", None)
     
@@ -334,30 +356,45 @@ class Organizer:
     
         # Verwendete Builds sammeln, jeden Build nur einmal
         lines = []
-        used_build_ids = set()
-    
+        #used_build_ids = set()
+        build_counts = {}
+        
         for entry in SQUAD:
             build = entry.get("build")
-    
+
             if not build:
                 continue
-    
+
             build_id = build["id"]
-    
-            if build_id in used_build_ids:
-                continue
-    
-            used_build_ids.add(build_id)
-    
+
+            if build_id not in build_counts:
+                build_counts[build_id] = {
+                    "build": build,
+                    "count": 0
+                }
+
+            build_counts[build_id]["count"] += 1
+
+        lines = []
+
+        for item in build_counts.values():
+            build = item["build"]
+            count = item["count"]
+
             name = build.get("name", "")
             role = build.get("rolle", "")
             link = build.get("link", "")
-    
-            lines.append(f"{name} - {role} - {link}")
+
+            line = f"[{name} : {role} (Anzahl: {count})]"
+
+            if link:
+                line += f"({link})"
+
+            lines.append(line)
     
         # Standardtext zusammenbauen
         intro = "Verwendete Builds für das Event:"
-        subtitle = "Verwendet diese Builds, um beim Event teilzunehmen."
+        subtitle = "Reagiert mit dem Klassenemote um am Event teilzunemehn."
     
         initial_text = (
             intro + "\n\n"
@@ -738,7 +775,30 @@ class Organizer:
 
 
     # ---------- Build-Bibliothek ----------
+    def add_default_builds(self):
+       defaults = ["Heal", "pDPS", "Stab"]
 
+       existing = {
+           (build["klasse"], build["elite"])
+           for build in BUILDS
+       }
+
+       for spec in defaults:
+           if ("Allgemein", spec) in existing:
+               continue
+
+           icon_path = find_icon(spec, "Allgemein")
+
+           BUILDS.append({
+               "id": max((b["id"] for b in BUILDS), default=0) + 1,
+               "name": f"Allgemein - {spec}",
+               "klasse": "Allgemein",
+               "elite": spec,
+               "rolle": spec,
+               "link": "",
+               "icon": icon_path,
+           })
+           
     def refresh_builds(self):
         for widget in self.build_grid.winfo_children():
             widget.destroy()
@@ -751,8 +811,11 @@ class Organizer:
                 padx=5, pady=5
             )
             card.grid(
-                row=index // 4, column=index % 4,
-                padx=4, pady=4, sticky="nsew"
+                row=index // 8,
+                column=index % 8,
+                padx=3,
+                pady=3,
+                sticky="nsew"
             )
 
             button = tk.Button(
@@ -767,10 +830,23 @@ class Organizer:
             button.image = image
             button.pack()
             
+            # Buildname – erste Zeile
             tk.Label(
-                card, text=build["name"][:14],
-                bg="#354252", fg="white",
-                wraplength=90
+                card,
+                text=build["name"][:10],
+                bg="#354252",
+                fg="white",
+                wraplength=65
+            ).pack()
+            
+            # Rolle – zweite Zeile
+            tk.Label(
+                card,
+                text=build.get("rolle", "")[:10],
+                bg="#354252",
+                fg="#aebdce",
+                font=("Arial", 8),
+                wraplength=65
             ).pack()
 
             # Drag-and-drop starten
@@ -799,6 +875,38 @@ class Organizer:
         GROUP_SLOTS[group] = 5
         self.refresh_squad()
     
+    def delete_last_group(self):
+        if not GROUP_SLOTS:
+            return
+    
+        group = max(GROUP_SLOTS.keys())
+    
+        if len(GROUP_SLOTS) <= 1:
+            messagebox.showinfo(
+                "Gruppe löschen",
+                "Mindestens eine Gruppe muss bestehen bleiben."
+            )
+            return
+    
+        if not messagebox.askyesno(
+            "Gruppe löschen",
+            f"Möchtest du Gruppe {group + 1} wirklich löschen?\n\n"
+            "Alle Builds in dieser Gruppe werden aus dem Squad entfernt."
+        ):
+            return
+    
+        # Alle Slots der letzten Gruppe entfernen
+        SQUAD[:] = [
+            entry for entry in SQUAD
+            if entry["group"] != group
+        ]
+    
+        # Gruppe entfernen
+        del GROUP_SLOTS[group]
+    
+        self.refresh_squad()
+    
+    
     
     def add_slot(self, group):
         if GROUP_SLOTS[group] >= MAX_SLOTS:
@@ -818,12 +926,39 @@ class Organizer:
     
         self.refresh_squad()
     
+    def remove_slot(self, group):
+        if GROUP_SLOTS[group] <= 1:
+            messagebox.showinfo(
+                "Slot entfernen",
+                "Jede Gruppe muss mindestens einen Slot behalten."
+            )
+            return
     
+        slot = GROUP_SLOTS[group] - 1
+    
+        if not messagebox.askyesno(
+            "Slot entfernen",
+            f"Möchtest du Slot {slot + 1} aus Gruppe {group + 1} entfernen?\n\n"
+            "Ein Build in diesem Slot wird aus dem Squad entfernt."
+        ):
+            return
+    
+        # Einträge im letzten Slot dieser Gruppe entfernen
+        SQUAD[:] = [
+            entry for entry in SQUAD
+            if not (entry["group"] == group and entry["slot"] == slot)
+        ]
+    
+        GROUP_SLOTS[group] -= 1
+        self.refresh_squad()
+        
     def refresh_squad(self):
         for widget in self.squad_area.winfo_children():
             widget.destroy()
     
         self.squad_slots = []
+    
+        SLOTS_PER_ROW = 5
     
         for group in sorted(GROUP_SLOTS):
             frame = tk.LabelFrame(
@@ -836,6 +971,10 @@ class Organizer:
             )
             frame.pack(fill="x", pady=4, anchor="n")
     
+            # Slots in Zeilen mit jeweils maximal 5 Slots anzeigen
+            slots_frame = tk.Frame(frame, bg="#2b3441")
+            slots_frame.pack(side="left", anchor="nw")
+    
             for slot in range(GROUP_SLOTS[group]):
                 entry = next(
                     (
@@ -846,11 +985,22 @@ class Organizer:
                     None
                 )
     
+                row = slot // SLOTS_PER_ROW
+                column = slot % SLOTS_PER_ROW
+    
                 cell = tk.Frame(
-                    frame, width=48, height=48, bg="#202630"
+                    slots_frame,
+                    width=48,
+                    height=48,
+                    bg="#202630"
+                )
+                cell.grid(
+                    row=row,
+                    column=column,
+                    padx=2,
+                    pady=2
                 )
                 cell.pack_propagate(False)
-                cell.pack(side="left", padx=2, pady=2)
     
                 if entry and entry["build"]:
                     build = entry["build"]
@@ -878,7 +1028,10 @@ class Organizer:
     
                 else:
                     empty = tk.Label(
-                        cell, text="·", bg="#202630", fg="#73869a"
+                        cell,
+                        text="·",
+                        bg="#202630",
+                        fg="#73869a"
                     )
                     empty.pack(fill="both", expand=True)
     
@@ -886,25 +1039,51 @@ class Organizer:
                     "<ButtonRelease-1>",
                     lambda e, g=group, s=slot: self.drop_to_slot(g, s)
                 )
+    
                 self.squad_slots.append((cell, group, slot))
+    
+            # Slot-Buttons rechts neben den Slots
+            controls = tk.Frame(frame, bg="#2b3441")
+            controls.pack(side="left", padx=(6, 0), anchor="n")
     
             if GROUP_SLOTS[group] < MAX_SLOTS:
                 tk.Button(
-                    frame,
+                    controls,
                     text="+",
-                    font=("Arial", 9),
                     width=2,
-                    padx=0,
-                    pady=0,
+                    height=1,
+                    font=("Arial", 7),
                     command=lambda g=group: self.add_slot(g)
-                ).pack(side="left", padx=3)
+                ).pack(pady=(2, 3))
+    
+            if GROUP_SLOTS[group] > 1:
+                tk.Button(
+                    controls,
+                    text="-",
+                    width=2,
+                    height=1,
+                    font=("Arial", 7),
+                    command=lambda g=group: self.remove_slot(g)
+                ).pack(pady=2)
+            
+        # Gruppen-Buttons
+        buttons = tk.Frame(self.squad_area, bg="#2b3441")
+        buttons.pack(anchor="w", pady=6)
     
         if len(GROUP_SLOTS) < MAX_GROUPS:
             tk.Button(
-                self.squad_area,
+                buttons,
                 text="+ Gruppe hinzufügen",
                 command=self.add_group
-            ).pack(anchor="w", pady=6)
+            ).pack(side="left", padx=(0, 5))
+    
+        if len(GROUP_SLOTS) > 1:
+            tk.Button(
+                buttons,
+                text="- Letzte Gruppe löschen",
+                command=self.delete_last_group
+            ).pack(side="left")
+            
 
     # ---------- Drag-and-drop ----------
 
@@ -927,26 +1106,36 @@ class Organizer:
 
     def end_drag(self, event):
         self.root.configure(cursor="")
-
+    
         if not self.drag_data:
             return
-
+    
         x, y = event.x_root, event.y_root
         target = None
-
+    
         for cell, group, slot in self.squad_slots:
             left = cell.winfo_rootx()
             top = cell.winfo_rooty()
             right = left + cell.winfo_width()
             bottom = top + cell.winfo_height()
-
+    
             if left <= x <= right and top <= y <= bottom:
                 target = (group, slot)
                 break
-
+    
         if target:
             self.place_item(*target)
-
+    
+        else:
+            # Build aus dem Squad entfernen, wenn er
+            # außerhalb aller Squad-Slots losgelassen wird.
+            if self.drag_data["source"] == "squad":
+                item = self.drag_data["item"]
+    
+                if item in SQUAD:
+                    SQUAD.remove(item)
+                    self.refresh_squad()
+    
         self.drag_data = None
 
     def drop_to_slot(self, group, slot):
