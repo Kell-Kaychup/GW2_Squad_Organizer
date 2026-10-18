@@ -5,3 +5,5 @@ Dazu können Builds als Elitespezialisierung ausgewählt werden und entsprechend
 Mit exportieren kann ein Jason-File generiert werden und an andere geteilt werden.
 
 Diese App ist unter Nutzung von KI erstellt wurden.
+
+![Screenshot](Screenshot.png)
