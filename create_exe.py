@@ -167,7 +167,7 @@ command = [
     "--onefile",
     "--windowed",
     "--name",
-    "squadtool",
+    "GW2SquadOrganizer",
     "--icon",
     str(exe_icon_ico),
     "--collect-all",
@@ -195,4 +195,4 @@ if result.returncode != 0:
     sys.exit(result.returncode)
 
 print("\nBuild erfolgreich abgeschlossen!")
-print("EXE:", script.parent / "dist" / "squadtool.exe")
+print("EXE:", script.parent / "dist" / "GW2SquadOrganizer.exe")
