@@ -700,19 +700,39 @@ class Organizer:
     def update_build_selection(self):
         selected = getattr(self, "selected_build", None)
     
+        # Build-Karten rechts aktualisieren
         for build in BUILDS:
             card = self.build_cards.get(id(build))
-            if not card:
+            if card is None:
                 continue
     
-            is_selected = build is selected
+            is_selected = selected is not None and build is selected
     
             card.configure(
-                bg="#354252",
-                highlightbackground=(
-                    "#69b7ff" if is_selected else "#354252"
-                ),
+                highlightbackground="#69b7ff" if is_selected else "#354252",
                 highlightthickness=2 if is_selected else 0
+            )
+    
+        # Alle Squad-Slots anhand des ausgewählten Builds aktualisieren
+        for cell, group, slot in self.squad_slots:
+            entry = next(
+                (
+                    item for item in SQUAD
+                    if item["group"] == group
+                    and item["slot"] == slot
+                ),
+                None
+            )
+    
+            is_selected = (
+                selected is not None
+                and entry is not None
+                and entry.get("build") is selected
+            )
+    
+            cell.configure(
+                highlightthickness=2 if is_selected else 0,
+                highlightbackground="#69b7ff"
             )
 
 
@@ -1136,11 +1156,13 @@ class Organizer:
                 column = slot % SLOTS_PER_ROW
     
                 cell = tk.Frame(
-                    slots_frame,
-                    width=48,
-                    height=48,
-                    bg="#202630"
-                )
+                        slots_frame,
+                        width=48,
+                        height=48,
+                        bg="#202630",
+                        highlightthickness=0,
+                        bd=0
+                    )
                 cell.grid(
                     row=row,
                     column=column,
@@ -1148,7 +1170,21 @@ class Organizer:
                     pady=2
                 )
                 cell.pack_propagate(False)
-    
+                
+                selected = getattr(self, "selected_build", None)
+
+                is_selected = (
+                    selected is not None
+                    and entry is not None
+                    and entry.get("build") is selected
+                )
+                
+                cell.configure(
+                    highlightthickness=2 if is_selected else 0,
+                    highlightbackground="#69b7ff"
+                )
+                    
+                    
                 if entry and entry["build"]:
                     build = entry["build"]
                     image = self.get_image(build["icon"], 40)
@@ -1158,7 +1194,16 @@ class Organizer:
                         image=image,
                         text="" if image else "?",
                         bg="#202630",
+                        activebackground="#354252",
                         relief="flat",
+                        bd=0,
+                        highlightthickness=2,
+                        highlightbackground=(
+                            "#69b7ff"
+                            if build is getattr(self, "selected_build", None)
+                            else "#202630"
+                        ),
+                        highlightcolor="#69b7ff",
                         command=lambda b=build: self.show_details(b)
                     )
                     button.image = image
