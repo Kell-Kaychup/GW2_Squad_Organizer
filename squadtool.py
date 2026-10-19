@@ -7,6 +7,10 @@ import webbrowser
 from PIL import Image, ImageTk, ImageDraw
 import sys
 from datetime import datetime
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
+import re
 
 if getattr(sys, "frozen", False):
     ICON_DIR = Path(sys._MEIPASS) / "class_icon"
@@ -225,7 +229,13 @@ class Organizer:
             build_buttons,
             text="+ Build erstellen",
             command=self.create_build
-        ).pack(side="left", fill="x", expand=True, padx=(0, 5))
+        ).pack(side="left", fill="x", expand=True, padx=(0, 0))
+        
+        tk.Button(
+            build_buttons,
+            text="Change Build",
+            command=self.change_build
+        ).pack(side="left", fill="x", expand=True, padx=(5, 0))
         
         tk.Button(
             build_buttons,
@@ -243,6 +253,50 @@ class Organizer:
             text="Load from DB",
             command=self.load_from_db
         ).pack(side="left", fill="x", expand=True, padx=(5, 0))
+        
+        # External-Auswahl rechts im Build-Bereich
+        external_container = tk.Frame(
+            self.right,
+            bg="#2b3441"
+        )
+        external_container.pack(
+            side="right",
+            anchor="e",
+            padx=10,
+            pady=(0, 8)
+        )
+        
+        # Checkboxen links, Button rechts
+        external_sources_frame = tk.Frame(
+            external_container,
+            bg="#2b3441"
+        )
+        external_sources_frame.pack(side="left", padx=(0, 8))
+        
+        self.external_sources = {
+            "SnowCrows": tk.BooleanVar(value=True),
+            "MetaBattle": tk.BooleanVar(value=False),
+        }
+        
+        for source, variable in self.external_sources.items():
+            tk.Checkbutton(
+                external_sources_frame,
+                text=source,
+                variable=variable,
+                bg="#2b3441",
+                fg="white",
+                selectcolor="#202630",
+                activebackground="#2b3441",
+                activeforeground="white"
+            ).pack(side="left", padx=(0, 5))
+        
+        # Button rechts neben den Checkboxen
+        tk.Button(
+            external_container,
+            text="Get External Builds",
+            command=self.get_external_builds
+        ).pack(side="left")
+        
         # Eigenschaften des angeklickten Builds
         self.details = tk.Frame(root, bg="#18202a")
         self.details.pack(fill="x", side="bottom")
@@ -641,6 +695,26 @@ class Organizer:
             self.images[key] = ImageTk.PhotoImage(image)
 
         return self.images[key]
+    
+    
+    def update_build_selection(self):
+        selected = getattr(self, "selected_build", None)
+    
+        for build in BUILDS:
+            card = self.build_cards.get(id(build))
+            if not card:
+                continue
+    
+            is_selected = build is selected
+    
+            card.configure(
+                bg="#354252",
+                highlightbackground=(
+                    "#69b7ff" if is_selected else "#354252"
+                ),
+                highlightthickness=2 if is_selected else 0
+            )
+
 
     def show_details(self, build):
         self.selected_build = build
@@ -651,9 +725,10 @@ class Organizer:
                 f'Name: {build["name"]} | '
                 f'Klasse: {build["klasse"]} | '
                 f'Elite: {build["elite"]} | '
-                f'Rolle: {build["rolle"]} | '
-                f'Link: {build.get("link", "")}\n'
-                f'Erstellt am: {build.get("zeit", "Unbekannt")}'
+                f'Rolle: {build["rolle"]} | \n'
+                f'Erstellt am: {build.get("zeit", "Unbekannt")} '
+                f'Link: {build.get("link", "")}'
+                
             )
         )
     
@@ -669,6 +744,7 @@ class Organizer:
                 fg="#888888",
                 cursor="arrow"
             )
+        self.update_build_selection()
 
     def open_build_link(self, event=None):
         if self.selected_build and self.selected_build.get("link"):
@@ -866,6 +942,7 @@ class Organizer:
            })
            
     def refresh_builds(self):
+        self.build_cards = {}
         for widget in self.build_grid.winfo_children():
             widget.destroy()
 
@@ -876,9 +953,10 @@ class Organizer:
                 self.build_grid, bg="#354252",
                 padx=5, pady=5
             )
+            self.build_cards[id(build)] = card
             card.grid(
-                row=index // 8,
-                column=index % 8,
+                row=index // 7,
+                column=index % 7,
                 padx=3,
                 pady=3,
                 sticky="nsew"
@@ -1502,7 +1580,60 @@ class Organizer:
     
         buttons = tk.Frame(dialog, bg="#202630")
         buttons.pack(fill="x", padx=12, pady=12)
-    
+        
+        def delete_checked_entries():
+            chosen = [
+                build for var, build in variables
+                if var.get()
+            ]
+        
+            if not chosen:
+                messagebox.showwarning(
+                    "Delete",
+                    "Bitte mindestens einen Build auswählen.",
+                    parent=dialog
+                )
+                return
+        
+            if not messagebox.askyesno(
+                "Einträge löschen",
+                f"{len(chosen)} Build(s) dauerhaft aus der Datenbank löschen?",
+                parent=dialog
+            ):
+                return
+        
+            chosen_ids = {id(build) for build in chosen}
+        
+            remaining = [
+                build for build in db_builds
+                if id(build) not in chosen_ids
+            ]
+        
+            try:
+                data["builds"] = remaining
+        
+                with open(DB_PATH, "w", encoding="utf-8") as file:
+                    json.dump(data, file, indent=2, ensure_ascii=False)
+        
+                # Daten für die Anzeige aktualisieren
+                db_builds[:] = remaining
+        
+                messagebox.showinfo(
+                    "Delete",
+                    f"{len(chosen)} Build(s) gelöscht.",
+                    parent=dialog
+                )
+        
+                dialog.destroy()
+                self.load_from_db()
+        
+            except (OSError, ValueError, TypeError) as error:
+                messagebox.showerror(
+                    "Datenbankfehler",
+                    str(error),
+                    parent=dialog
+                )
+        
         def uncheck_all():
             for var, _ in variables:
                 var.set(False)
@@ -1586,7 +1717,15 @@ class Organizer:
             buttons,
             text="Uncheck all",
             command=uncheck_all
-        ).pack(side="left")
+        ).pack(side="left", padx=(0, 5))
+        
+        tk.Button(
+            buttons,
+            text="Delete checked entries",
+            command=delete_checked_entries
+        ).pack(side="left", padx=(0, 5))
+        
+
     
         tk.Button(
             buttons,
@@ -1594,7 +1733,614 @@ class Organizer:
             command=load_selected
         ).pack(side="right")
     
+    
+    def get_external_builds(self):
+        selected_sources = [
+            source
+            for source, variable in self.external_sources.items()
+            if variable.get()
+        ]
         
+        if not selected_sources:
+            messagebox.showwarning(
+                "External Builds",
+                "Bitte mindestens eine Quelle auswählen."
+            )
+            return
+    
+        found = []
+        seen_urls = set()
+        errors = []
+    
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 Chrome/131.0 Safari/537.36"
+        })
+    
+        professions = [
+            "elementalist",
+            "mesmer",
+            "necromancer",
+            "engineer",
+            "ranger",
+            "thief",
+            "guardian",
+            "warrior",
+            "revenant",
+        ]
+    
+        profession_names = {
+            "elementalist": "Elementalist",
+            "mesmer": "Mesmer",
+            "necromancer": "Necromancer",
+            "engineer": "Engineer",
+            "ranger": "Ranger",
+            "thief": "Thief",
+            "guardian": "Guardian",
+            "warrior": "Warrior",
+            "revenant": "Revenant",
+        }
+    
+        def add_build(source, title, href, profession_hint=""):
+            """Build vereinheitlichen und doppelte URLs vermeiden."""
+            href = href.split("#")[0].rstrip("/")
+    
+            if not href or href in seen_urls:
+                return
+    
+            seen_urls.add(href)
+    
+            profession, elite, role = self.identify_external_build(
+                f"{title} {href}"
+            )
+    
+            # Klasse aus dem URL-Pfad übernehmen, falls nötig.
+            if not profession and profession_hint:
+                profession = profession_hint
+    
+            # Klasse notfalls anhand des URL-Pfades erkennen.
+            if not profession:
+                normalized_url = normalize(href)
+    
+                for slug, class_name in profession_names.items():
+                    if slug in normalized_url:
+                        profession = class_name
+                        break
+    
+            found.append({
+                "name": f"{source} - {title}",
+                "klasse": profession or "Allgemein",
+                "elite": elite or "Core",
+                "rolle": role,
+                "link": href,
+                "icon": find_icon(elite or "Core", profession),
+                "zeit": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            })
+    
+        # --------------------------------------------------
+        # 1. SNOW CROWS
+        # --------------------------------------------------
+        if "SnowCrows" in selected_sources:
+            base_url = "https://snowcrows.com/builds/wvw"
+    
+            try:
+                for profession_slug in professions:
+                    page_url = f"{base_url}/{profession_slug}"
+                    response = session.get(page_url, timeout=20)
+                    response.raise_for_status()
+    
+                    soup = BeautifulSoup(response.text, "html.parser")
+    
+                    for link in soup.select('a[href*="/builds/wvw/"]'):
+                        href = urljoin(page_url, link.get("href", ""))
+                        parts = urlparse(href).path.strip("/").split("/")
+    
+                        # /builds/wvw/klasse/build-slug
+                        if len(parts) != 4:
+                            continue
+    
+                        if parts[:2] != ["builds", "wvw"]:
+                            continue
+    
+                        if parts[2] != profession_slug:
+                            continue
+    
+                        title = link.get_text(" ", strip=True)
+    
+                        if not title:
+                            title = parts[3].replace("-", " ").title()
+    
+                        add_build(
+                            "SC",
+                            title,
+                            href,
+                            profession_names[profession_slug]
+                        )
+    
+            except requests.RequestException as error:
+                errors.append(f"SnowCrows: {error}")
+                
+        # --------------------------------------------------
+        # 3. METABATTLE
+        # --------------------------------------------------
+        if "MetaBattle" in selected_sources:
+            metabattle_urls = [
+                "https://metabattle.com/wiki/Category:WvW_Zerg_builds",
+            ]
+    
+            try:
+                metabattle_found = 0
+    
+                for page_url in metabattle_urls:
+                    response = session.get(page_url, timeout=20)
+                    response.raise_for_status()
+    
+                    soup = BeautifulSoup(response.text, "html.parser")
+    
+                    # MediaWiki-Buildseiten und Kategorieeinträge.
+                    selectors = [
+                        'a[href*="/wiki/Build:"]',
+                        '#mw-pages a[href*="/wiki/"]',
+                        '.mw-category a[href*="/wiki/"]',
+                    ]
+    
+                    links = []
+    
+                    for selector in selectors:
+                        links.extend(soup.select(selector))
+    
+                    for link in links:
+                        href = urljoin(page_url, link.get("href", ""))
+                        parsed = urlparse(href)
+                        path = parsed.path.rstrip("/")
+    
+                        if parsed.netloc not in (
+                            "metabattle.com",
+                            "www.metabattle.com",
+                        ):
+                            continue
+    
+                        # Nur tatsächliche Buildseiten übernehmen.
+                        if "/wiki/Build:" not in path:
+                            continue
+    
+                        title = link.get_text(" ", strip=True)
+    
+                        if not title:
+                            title = path.rsplit("/", 1)[-1]
+                            title = title.replace("Build:", "")
+                            title = title.replace("_", " ")
+    
+                        before_count = len(found)
+                        add_build("MB", title, href)
+    
+                        if len(found) > before_count:
+                            metabattle_found += 1
+    
+                if metabattle_found == 0:
+                    errors.append(
+                        "MetaBattle: Keine Build-Links gefunden."
+                    )
+    
+            except requests.RequestException as error:
+                errors.append(f"MetaBattle: {error}")
+    
+        session.close()
+    
+        # --------------------------------------------------
+        # ERGEBNISSE PRÜFEN
+        # --------------------------------------------------
+        if not found:
+            message = "Es wurden keine Builds gefunden."
+    
+            if errors:
+                message += "\n\n" + "\n\n".join(errors)
+    
+            messagebox.showwarning("External Builds", message)
+            return
+    
+        # --------------------------------------------------
+        # IMPORTDIALOG
+        # --------------------------------------------------
+        dialog = tk.Toplevel(self.root)
+        dialog.title("External Builds auswählen")
+        dialog.geometry("850x600")
+        dialog.configure(bg="#202630")
+        dialog.transient(self.root)
+    
+        heading = tk.Label(
+            dialog,
+            text=f"{len(found)} externe Builds gefunden",
+            bg="#202630",
+            fg="white",
+            font=("Arial", 14, "bold")
+        )
+        heading.pack(anchor="w", padx=12, pady=12)
+    
+        if errors:
+            tk.Label(
+                dialog,
+                text=(
+                    f"{len(errors)} Hinweis(e) zu den Quellen. "
+                    "Details stehen in der Konsole."
+                ),
+                bg="#202630",
+                fg="#ffc66d",
+                anchor="w"
+            ).pack(fill="x", padx=12, pady=(0, 8))
+    
+            for error in errors:
+                print(error)
+    
+        container = tk.Frame(dialog, bg="#2b3441")
+        container.pack(fill="both", expand=True, padx=12)
+    
+        canvas = tk.Canvas(
+            container,
+            bg="#2b3441",
+            highlightthickness=0
+        )
+    
+        scrollbar = ttk.Scrollbar(
+            container,
+            orient="vertical",
+            command=canvas.yview
+        )
+    
+        canvas.configure(yscrollcommand=scrollbar.set)
+    
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+    
+        list_frame = tk.Frame(canvas, bg="#2b3441")
+    
+        window_id = canvas.create_window(
+            (0, 0),
+            window=list_frame,
+            anchor="nw"
+        )
+    
+        list_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
+        )
+    
+        canvas.bind(
+            "<Configure>",
+            lambda e: canvas.itemconfigure(
+                window_id,
+                width=e.width
+            )
+        )
+    
+        def build_key(build):
+            return (
+                build.get("name", "").casefold(),
+                build.get("klasse", ""),
+                build.get("elite", ""),
+                build.get("rolle", "")
+            )
+    
+        existing_keys = {build_key(build) for build in BUILDS}
+        variables = []
+    
+        for build in found:
+            key = build_key(build)
+            already_exists = key in existing_keys
+    
+            var = tk.BooleanVar(value=not already_exists)
+            variables.append((var, build))
+    
+            checkbox = tk.Checkbutton(
+                list_frame,
+                text=(
+                    f'{build["name"]} | '
+                    f'{build["klasse"]} | '
+                    f'{build["elite"]} | '
+                    f'{build["rolle"] or "Rolle unbekannt"}'
+                ),
+                variable=var,
+                state="disabled" if already_exists else "normal",
+                bg="#2b3441",
+                fg="#8995a3" if already_exists else "white",
+                selectcolor="#202630",
+                activebackground="#2b3441",
+                activeforeground="white",
+                anchor="w",
+                justify="left",
+                wraplength=760
+            )
+    
+            checkbox.pack(fill="x", padx=5, pady=2)
+    
+        buttons = tk.Frame(dialog, bg="#202630")
+        buttons.pack(fill="x", padx=12, pady=12)
+    
+        def select_all():
+            for var, build in variables:
+                if build_key(build) not in existing_keys:
+                    var.set(True)
+    
+        def deselect_all():
+            for var, _ in variables:
+                var.set(False)
+    
+        def import_selected():
+            chosen = [
+                build
+                for var, build in variables
+                if var.get()
+            ]
+    
+            if not chosen:
+                messagebox.showwarning(
+                    "Import",
+                    "Bitte mindestens einen Build auswählen.",
+                    parent=dialog
+                )
+                return
+    
+            imported = 0
+    
+            for item in chosen:
+                key = build_key(item)
+    
+                if key in existing_keys:
+                    continue
+    
+                new_build = {
+                    **item,
+                    "id": max(
+                        (int(b["id"]) for b in BUILDS),
+                        default=0
+                    ) + 1
+                }
+    
+                BUILDS.append(new_build)
+                existing_keys.add(key)
+                imported += 1
+    
+            self.refresh_builds()
+    
+            messagebox.showinfo(
+                "Import",
+                f"{imported} Build(s) importiert.",
+                parent=dialog
+            )
+    
+            dialog.destroy()
+    
+        tk.Button(
+            buttons,
+            text="Alle auswählen",
+            command=select_all
+        ).pack(side="left", padx=(0, 5))
+    
+        tk.Button(
+            buttons,
+            text="Alle abwählen",
+            command=deselect_all
+        ).pack(side="left")
+    
+        tk.Button(
+            buttons,
+            text="Ausgewählte importieren",
+            command=import_selected
+        ).pack(side="right")
+
+    
+    
+    
+    def identify_external_build(self, text):
+        combined = normalize(text)
+    
+        profession = ""
+        elite = ""
+        role = ""
+    
+        # Rolle am Anfang des Build-Namens erkennen
+        role_patterns = [
+            ("DPS", r"^power"),
+            ("Power", r"^power"),
+            ("Condi", r"^(condi|condition)"),
+            ("Support", r"^support"),
+            ("Heal", r"^(heal|healing)"),
+            ("Quick", r"^quick"),
+            ("Alacrity", r"^alacrity"),
+            ("Tank", r"^tank"),
+            ("Boon Support", r"^boonsupport"),
+        ]
+    
+        for candidate, pattern in role_patterns:
+            if re.search(pattern, combined):
+                role = candidate
+                break
+    
+        # Elite-Spezialisierung erkennen
+        specializations = {
+            normalize(spec): (profession_name, spec)
+            for profession_name, specs in SPECIALIZATIONS.items()
+            if profession_name != "Allgemein"
+            for spec in specs
+            if spec != "Core"
+        }
+    
+        for key in sorted(specializations, key=len, reverse=True):
+            if key in combined:
+                profession, elite = specializations[key]
+                break
+    
+        # Core-Klasse erkennen, falls keine Elite gefunden wurde
+        if not profession:
+            for name in SPECIALIZATIONS:
+                if name != "Allgemein" and normalize(name) in combined:
+                    profession = name
+                    elite = "Core"
+                    break
+    
+        return profession, elite, role
+    
+    def change_build(self):
+        build = getattr(self, "selected_build", None)
+    
+        if not build:
+            messagebox.showwarning(
+                "Change Build",
+                "Bitte zuerst einen Build auswählen."
+            )
+            return
+    
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Build bearbeiten")
+        dialog.configure(bg="#2b3441")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+    
+        form = tk.Frame(dialog, bg="#2b3441", padx=15, pady=15)
+        form.pack(fill="both", expand=True)
+    
+        def add_label(text, row):
+            tk.Label(
+                form,
+                text=text,
+                bg="#2b3441",
+                fg="white"
+            ).grid(row=row, column=0, sticky="w", pady=5)
+    
+        add_label("Buildname:", 0)
+        name = tk.Entry(form, width=32)
+        name.grid(row=0, column=1, pady=5)
+        name.insert(0, build.get("name", ""))
+    
+        add_label("Klasse:", 1)
+        klasse = ttk.Combobox(
+            form,
+            values=list(SPECIALIZATIONS),
+            state="readonly",
+            width=29
+        )
+        klasse.grid(row=1, column=1, pady=5)
+        klasse.set(build.get("klasse", ""))
+    
+        add_label("Elite-Spezialisierung:", 2)
+        elite = ttk.Combobox(
+            form,
+            state="readonly",
+            width=29
+        )
+        elite.grid(row=2, column=1, pady=5)
+    
+        add_label("Rolle:", 3)
+        role = tk.Entry(form, width=32)
+        role.grid(row=3, column=1, pady=5)
+        role.insert(0, build.get("rolle", ""))
+    
+        add_label("Build-Link:", 4)
+        link = tk.Entry(form, width=32)
+        link.grid(row=4, column=1, pady=5)
+        link.insert(0, build.get("link", ""))
+    
+        preview = tk.Label(form, bg="#2b3441")
+        preview.grid(row=5, column=1, sticky="w", pady=8)
+        preview.image = None
+    
+        def update_elites(event=None):
+            specs = SPECIALIZATIONS.get(klasse.get(), [])
+            elite["values"] = specs
+    
+            if build.get("elite") in specs:
+                elite.set(build["elite"])
+            else:
+                elite.set("")
+    
+            update_icon()
+    
+        def update_icon(event=None):
+            spec = elite.get().strip()
+            class_name = klasse.get()
+    
+            if not spec:
+                preview.config(image="", text="Elite auswählen")
+                preview.image = None
+                return
+    
+            path = find_icon(spec, class_name)
+    
+            if path is None:
+                preview.config(
+                    image="",
+                    text=f"Icon nicht gefunden: {spec}"
+                )
+                preview.image = None
+                return
+    
+            image = self.get_image(path, 48)
+            preview.config(image=image, text="")
+            preview.image = image
+    
+        klasse.bind("<<ComboboxSelected>>", update_elites)
+        elite.bind("<<ComboboxSelected>>", update_icon)
+    
+        # Bestehende Werte anzeigen
+        update_elites()
+    
+        def save_changes():
+            build_name = name.get().strip()
+            class_name = klasse.get()
+            spec = elite.get()
+            build_role = role.get().strip()
+            build_link = link.get().strip()
+    
+            if not all([build_name, class_name, spec]):
+                messagebox.showwarning(
+                    "Fehlende Angaben",
+                    "Bitte Name, Klasse und Elite ausfüllen.",
+                    parent=dialog
+                )
+                return
+    
+            icon_path = find_icon(spec, class_name)
+    
+            if not icon_path:
+                messagebox.showwarning(
+                    "Icon fehlt",
+                    f"Kein Icon für {spec} gefunden.",
+                    parent=dialog
+                )
+                return
+    
+            # Eigenschaften des bestehenden Builds ändern
+            build["name"] = build_name
+            build["klasse"] = class_name
+            build["elite"] = spec
+            build["rolle"] = build_role
+            build["link"] = build_link
+            build["icon"] = icon_path
+    
+            # Datum der letzten Änderung aktualisieren
+            build["zeit"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    
+            self.refresh_builds()
+            self.refresh_squad()
+            self.show_details(build)
+    
+            dialog.destroy()
+    
+            messagebox.showinfo(
+                "Change Build",
+                f'Build "{build_name}" wurde aktualisiert.'
+            )
+    
+        tk.Button(
+            form,
+            text="Änderungen speichern",
+            command=save_changes
+        ).grid(row=6, column=1, sticky="e", pady=10)
+    
     # ---------- Build erstellen ----------
     
     def create_build(self):
