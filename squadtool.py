@@ -1338,23 +1338,32 @@ class Organizer:
                 icon_value = ""
             
             item = {
-                **build,
-                "icon": icon_value,
-                "zeit": build.get("zeit") or datetime.now().strftime(
-                    "%Y-%m-%d %H:%M"
-                ),
+                key: value
+                for key, value in build.items()
+                if key not in ("id", "icon")
             }
-    
-            # Build anhand seiner ID aktualisieren oder neu einfügen
-            found = False
-    
+            
+            item["icon"] = icon_value
+            item["zeit"] = build.get("zeit") or datetime.now().strftime(
+                "%Y-%m-%d %H:%M"
+            )
+            
+            # Über Eigenschaften statt ID identifizieren
+            def build_key(entry):
+                return (
+                    entry.get("name", ""),
+                    entry.get("klasse", ""),
+                    entry.get("elite", ""),
+                    entry.get("rolle", "")
+                )
+            
+            key = build_key(item)
+            
             for index, saved in enumerate(db_builds):
-                if int(saved["id"]) == int(build["id"]):
+                if build_key(saved) == key:
                     db_builds[index] = item
-                    found = True
                     break
-    
-            if not found:
+            else:
                 db_builds.append(item)
     
             with open(DB_PATH, "w", encoding="utf-8") as file:
@@ -1374,6 +1383,7 @@ class Organizer:
                 "Datenbankfehler",
                 str(error)
             )
+            
     def load_from_db(self):
         if not DB_PATH.exists():
             messagebox.showinfo(
@@ -1502,7 +1512,7 @@ class Organizer:
                 build for var, build in variables
                 if var.get()
             ]
-    
+        
             if not chosen:
                 messagebox.showwarning(
                     "Load",
@@ -1510,40 +1520,44 @@ class Organizer:
                     parent=dialog
                 )
                 return
-    
-            # Vorhandene IDs berücksichtigen
-            existing_ids = {
-                int(build["id"])
-                for build in BUILDS
+        
+            def build_key(entry):
+                return (
+                    entry.get("name", ""),
+                    entry.get("klasse", ""),
+                    entry.get("elite", ""),
+                    entry.get("rolle", "")
+                )
+        
+            existing_keys = {
+                build_key(build) for build in BUILDS
             }
-    
+        
             loaded = 0
-    
+        
             for item in chosen:
-                build_id = int(item["id"])
-    
-                if build_id in existing_ids:
+                key = build_key(item)
+        
+                if key in existing_keys:
                     continue
-    
+        
                 class_name = str(item.get("klasse", ""))
                 elite = str(item.get("elite", ""))
-    
-                icon_path = find_icon(elite, class_name)
-    
-                # Falls ein Icon-Pfad gespeichert wurde und noch gültig ist
-                saved_icon = item.get("icon", "")
-
-                if saved_icon:
-                    saved_path = Path(saved_icon)
-                
-                    if not saved_path.is_absolute():
-                        saved_path = Path(__file__).resolve().parent / saved_path
-                
-                    if saved_path.is_file():
-                        icon_path = saved_path
-    
+        
+                # Icon-Pfad auflösen
+                icon_path = self.icon_to_absolute(item.get("icon", ""))
+        
+                if icon_path is None:
+                    icon_path = find_icon(elite, class_name)
+        
+                # Neue ID passend zur aktuellen Build-Liste vergeben
+                new_id = max(
+                    (int(build["id"]) for build in BUILDS),
+                    default=0
+                ) + 1
+        
                 build = {
-                    "id": build_id,
+                    "id": new_id,
                     "name": str(item.get("name", "")),
                     "klasse": class_name,
                     "elite": elite,
@@ -1552,20 +1566,20 @@ class Organizer:
                     "icon": icon_path,
                     "zeit": str(item.get("zeit", "")),
                 }
-    
+        
                 BUILDS.append(build)
-                existing_ids.add(build_id)
+                existing_keys.add(key)
                 loaded += 1
-    
+        
             self.refresh_builds()
-    
+        
             messagebox.showinfo(
                 "Load from DB",
                 f"{loaded} Build(s) geladen.\n"
                 f"{len(chosen) - loaded} bereits vorhandene Builds übersprungen.",
                 parent=dialog
             )
-    
+        
             dialog.destroy()
     
         tk.Button(
