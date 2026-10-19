@@ -6,11 +6,19 @@ from tkinter import filedialog
 import webbrowser
 from PIL import Image, ImageTk, ImageDraw
 import sys
+from datetime import datetime
 
 if getattr(sys, "frozen", False):
     ICON_DIR = Path(sys._MEIPASS) / "class_icon"
 else:
     ICON_DIR = Path(__file__).resolve().parent / "class_icon"
+    
+DB_PATH = (
+    Path(sys.executable).resolve().parent / "builds_db.json"
+    if getattr(sys, "frozen", False)
+    else Path(__file__).resolve().parent / "builds_db.json"
+)
+
 # Elite-Spezialisierungen je Klasse
 SPECIALIZATIONS = {
     "Elementalist": ["Core", "Tempest", "Weaver", "Catalyst", "Evoker"],
@@ -22,7 +30,8 @@ SPECIALIZATIONS = {
     "Guardian": ["Core", "Dragonhunter", "Firebrand", "Willbender", "Luminary"],
     "Warrior": ["Core", "Berserker", "Spellbreaker", "Bladesworn", "Paragon"],
     "Revenant": ["Core", "Herald", "Renegade", "Vindicator", "Conduit"],    
-    "Allgemein": ["Core", "Quick","Alacrity", "Heal", "Tank", "Toolkit", "Block", "pDPS", "cDPS", "Invul", "Stab", "Portal"],
+    "Allgemein": ["Core", "Quick","Alacrity", "Heal", "Tank",
+                  "Toolkit", "Block", "pDPS", "cDPS", "Invul", "Stab", "Portal"],
 }
 
 
@@ -70,8 +79,9 @@ class Organizer:
 
         self.images = {}
         self.drag_data = None
+        self.drag_icon = None
         self.squad_slots = []
-
+        
         style = ttk.Style()
         style.theme_use("clam")
         style.configure(
@@ -222,7 +232,17 @@ class Organizer:
             text="Build löschen",
             command=self.delete_build
         ).pack(side="left", fill="x", expand=True, padx=(5, 0))
-
+        tk.Button(
+            build_buttons,
+            text="Save in DB",
+            command=self.save_to_db
+        ).pack(side="left", fill="x", expand=True, padx=(5, 0))
+        
+        tk.Button(
+            build_buttons,
+            text="Load from DB",
+            command=self.load_from_db
+        ).pack(side="left", fill="x", expand=True, padx=(5, 0))
         # Eigenschaften des angeklickten Builds
         self.details = tk.Frame(root, bg="#18202a")
         self.details.pack(fill="x", side="bottom")
@@ -283,6 +303,41 @@ class Organizer:
         self.refresh_builds()
     
     
+    def icon_to_relative(self, icon_path):
+        if not icon_path:
+            return ""
+    
+        path = Path(icon_path)
+    
+        # Bereits relativen Pfad beibehalten
+        if not path.is_absolute():
+            return path.as_posix()
+    
+        # Pfad relativ zum Programmordner speichern
+        try:
+            return path.resolve().relative_to(
+                Path(__file__).resolve().parent
+            ).as_posix()
+        except ValueError:
+            return path.name
+    
+    
+    def icon_to_absolute(self, icon_path):
+        if not icon_path:
+            return None
+    
+        path = Path(icon_path)
+    
+        # Relative Pfade auflösen
+        if not path.is_absolute():
+            path = Path(__file__).resolve().parent / path
+    
+        if path.is_file():
+            return path
+    
+        # Fallback: Icon anhand von Klasse und Elite suchen
+        return None
+
     def clear_squad(self):
         if not messagebox.askyesno(
             "Clear Squad",
@@ -597,7 +652,8 @@ class Organizer:
                 f'Klasse: {build["klasse"]} | '
                 f'Elite: {build["elite"]} | '
                 f'Rolle: {build["rolle"]} | '
-                f'Link: {build.get("link", "")}'
+                f'Link: {build.get("link", "")}\n'
+                f'Erstellt am: {build.get("zeit", "Unbekannt")}'
             )
         )
     
@@ -613,6 +669,7 @@ class Organizer:
                 fg="#888888",
                 cursor="arrow"
             )
+
     def open_build_link(self, event=None):
         if self.selected_build and self.selected_build.get("link"):
             webbrowser.open(self.selected_build["link"])
@@ -630,7 +687,7 @@ class Organizer:
             "builds": [
                 {
                     **build,
-                    "icon": str(build["icon"])
+                    "icon": self.icon_to_relative(build.get("icon"))
                 }
                 for build in BUILDS
             ],
@@ -696,13 +753,21 @@ class Organizer:
                 ids.add(build_id)
     
                 new_builds.append({
-                    "id": build_id,
-                    "name": str(build["name"]),
-                    "klasse": str(build["klasse"]),
-                    "elite": str(build["elite"]),
-                    "rolle": str(build.get("rolle", "")),
-                    "link": str(build.get("link", "")),
-                    "icon": find_icon(build.get("elite", ""),build.get("klasse", "")),})
+                                "id": build_id,
+                                "name": str(build["name"]),
+                                "klasse": str(build["klasse"]),
+                                "elite": str(build["elite"]),
+                                "rolle": str(build.get("rolle", "")),
+                                "link": str(build.get("link", "")),
+                                "icon": (
+                                        self.icon_to_absolute(build.get("icon"))
+                                        or find_icon(
+                                            build.get("elite", ""),
+                                            build.get("klasse", "")
+                                        )
+                                    ),
+                                "zeit": str(build.get("zeit", "")),
+                            })
     
             new_group_slots = {
                 int(group): int(slots)
@@ -797,6 +862,7 @@ class Organizer:
                "rolle": spec,
                "link": "",
                "icon": icon_path,
+               "zeit": datetime.now().strftime("%Y-%m-%d %H:%M"),
            })
            
     def refresh_builds(self):
@@ -840,15 +906,18 @@ class Organizer:
             ).pack()
             
             # Rolle – zweite Zeile
+            date_text = build.get("zeit", "")
+
             tk.Label(
                 card,
-                text=build.get("rolle", "")[:10],
+                text=f'{build.get("rolle", "")[:10]}\n{date_text}',
                 bg="#354252",
                 fg="#aebdce",
-                font=("Arial", 8),
-                wraplength=65
+                font=("Arial", 7),
+                wraplength=90,
+                justify="center"
             ).pack()
-
+            
             # Drag-and-drop starten
             button.bind(
                 "<ButtonPress-1>",
@@ -1094,18 +1163,54 @@ class Organizer:
             "x": event.x_root,
             "y": event.y_root,
         }
-
-        if source == "library":
-            self.show_details(item)
-        else:
-            self.show_details(item["build"])
+    
+        # Build ermitteln
+        build = item if source == "library" else item["build"]
+    
+        if not build:
+            return
+    
+        self.show_details(build)
+    
+        # Icon laden
+        image = self.get_image(build.get("icon"), 48)
+    
+        if image:
+            self.drag_icon = tk.Label(
+                self.root,
+                image=image,
+                bg="#354252",
+                bd=2,
+                relief="solid"
+            )
+            self.drag_icon.image = image
+    
+            # Icon direkt am Mauszeiger anzeigen
+            self.drag_icon.place(
+                x=event.x_root - self.root.winfo_rootx() + 10,
+                y=event.y_root - self.root.winfo_rooty() + 10
+            )
+    
+            self.drag_icon.lift()
 
     def move_drag(self, event):
         if self.drag_data:
             self.root.configure(cursor="hand2")
+    
+            if self.drag_icon:
+                x = event.x_root - self.root.winfo_rootx() + 10
+                y = event.y_root - self.root.winfo_rooty() + 10
+    
+                self.drag_icon.place(x=x, y=y)
+                self.drag_icon.lift()
 
     def end_drag(self, event):
         self.root.configure(cursor="")
+    
+        # Drag-Icon entfernen
+        if self.drag_icon:
+            self.drag_icon.destroy()
+            self.drag_icon = None
     
         if not self.drag_data:
             return
@@ -1191,9 +1296,293 @@ class Organizer:
             item["group"], item["slot"] = group, slot
 
         self.refresh_squad()
+        
+    def save_to_db(self):
+        build = getattr(self, "selected_build", None)
+    
+        if not build:
+            messagebox.showwarning(
+                "Save in DB",
+                "Bitte zuerst einen Build in der Bibliothek auswählen."
+            )
+            return
+    
+        try:
+            if DB_PATH.exists():
+                with open(DB_PATH, "r", encoding="utf-8") as file:
+                    data = json.load(file)
+            else:
+                data = {"builds": []}
+    
+            if not isinstance(data, dict):
+                raise ValueError("Ungültiges Datenbankformat.")
+    
+            db_builds = data.setdefault("builds", [])
+    
+            if not isinstance(db_builds, list):
+                raise ValueError("Ungültige Build-Liste.")
+    
+            icon_path = build.get("icon")
 
+            if icon_path:
+                try:
+                    relative_icon = Path(icon_path).resolve().relative_to(
+                        Path(__file__).resolve().parent
+                    )
+                    icon_value = relative_icon.as_posix()
+                except ValueError:
+                    # Icons außerhalb des Programmordners nicht als absoluten
+                    # Pfad speichern.
+                    icon_value = Path(icon_path).name
+            else:
+                icon_value = ""
+            
+            item = {
+                **build,
+                "icon": icon_value,
+                "zeit": build.get("zeit") or datetime.now().strftime(
+                    "%Y-%m-%d %H:%M"
+                ),
+            }
+    
+            # Build anhand seiner ID aktualisieren oder neu einfügen
+            found = False
+    
+            for index, saved in enumerate(db_builds):
+                if int(saved["id"]) == int(build["id"]):
+                    db_builds[index] = item
+                    found = True
+                    break
+    
+            if not found:
+                db_builds.append(item)
+    
+            with open(DB_PATH, "w", encoding="utf-8") as file:
+                json.dump(data, file, indent=2, ensure_ascii=False)
+    
+            # Datum auch im ausgewählten Build aktualisieren
+            build["zeit"] = item["zeit"]
+            self.show_details(build)
+    
+            messagebox.showinfo(
+                "Save in DB",
+                f'Build "{build["name"]}" gespeichert.\n\n{DB_PATH}'
+            )
+    
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            messagebox.showerror(
+                "Datenbankfehler",
+                str(error)
+            )
+    def load_from_db(self):
+        if not DB_PATH.exists():
+            messagebox.showinfo(
+                "Load from DB",
+                f"Die Datenbank existiert noch nicht:\n{DB_PATH}\n\n"
+                "Speichere zuerst einen Build mit 'Save in DB'."
+            )
+            return
+    
+        try:
+            with open(DB_PATH, "r", encoding="utf-8") as file:
+                data = json.load(file)
+    
+            db_builds = data["builds"]
+    
+            if not isinstance(db_builds, list):
+                raise ValueError("Ungültige Build-Liste.")
+    
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            messagebox.showerror(
+                "Datenbankfehler",
+                str(error)
+            )
+            return
+    
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Load from DB")
+        dialog.geometry("600x500")
+        dialog.configure(bg="#202630")
+        dialog.transient(self.root)
+    
+        tk.Label(
+            dialog,
+            text="Builds aus der Datenbank auswählen",
+            bg="#202630",
+            fg="white",
+            font=("Arial", 14, "bold")
+        ).pack(anchor="w", padx=12, pady=12)
+    
+        container = tk.Frame(dialog, bg="#202630")
+        container.pack(fill="both", expand=True, padx=12)
+    
+        canvas = tk.Canvas(
+            container,
+            bg="#2b3441",
+            highlightthickness=0
+        )
+        scrollbar = ttk.Scrollbar(
+            container,
+            orient="vertical",
+            command=canvas.yview
+        )
+    
+        canvas.configure(yscrollcommand=scrollbar.set)
+    
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+    
+        list_frame = tk.Frame(canvas, bg="#2b3441")
+        window_id = canvas.create_window(
+            (0, 0),
+            window=list_frame,
+            anchor="nw"
+        )
+    
+        list_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
+        )
+    
+        canvas.bind(
+            "<Configure>",
+            lambda e: canvas.itemconfigure(
+                window_id,
+                width=e.width
+            )
+        )
+    
+        variables = []
+    
+        if not db_builds:
+            tk.Label(
+                list_frame,
+                text="Die Datenbank enthält keine Builds.",
+                bg="#2b3441",
+                fg="white"
+            ).pack(anchor="w", padx=8, pady=8)
+    
+        for build in db_builds:
+            var = tk.BooleanVar(value=False)
+            variables.append((var, build))
+    
+            label_text = (
+                f'{build.get("name", "Unbenannt")} | '
+                f'{build.get("klasse", "")} | '
+                f'{build.get("elite", "")} | '
+                f'{build.get("rolle", "")} | '
+                f'{build.get("zeit", "Kein Datum")}'
+            )
+    
+            tk.Checkbutton(
+                list_frame,
+                text=label_text,
+                variable=var,
+                bg="#2b3441",
+                fg="white",
+                selectcolor="#202630",
+                activebackground="#2b3441",
+                activeforeground="white",
+                anchor="w",
+                justify="left",
+                wraplength=520
+            ).pack(fill="x", anchor="w", padx=5, pady=3)
+    
+        buttons = tk.Frame(dialog, bg="#202630")
+        buttons.pack(fill="x", padx=12, pady=12)
+    
+        def uncheck_all():
+            for var, _ in variables:
+                var.set(False)
+    
+        def load_selected():
+            chosen = [
+                build for var, build in variables
+                if var.get()
+            ]
+    
+            if not chosen:
+                messagebox.showwarning(
+                    "Load",
+                    "Bitte mindestens einen Build auswählen.",
+                    parent=dialog
+                )
+                return
+    
+            # Vorhandene IDs berücksichtigen
+            existing_ids = {
+                int(build["id"])
+                for build in BUILDS
+            }
+    
+            loaded = 0
+    
+            for item in chosen:
+                build_id = int(item["id"])
+    
+                if build_id in existing_ids:
+                    continue
+    
+                class_name = str(item.get("klasse", ""))
+                elite = str(item.get("elite", ""))
+    
+                icon_path = find_icon(elite, class_name)
+    
+                # Falls ein Icon-Pfad gespeichert wurde und noch gültig ist
+                saved_icon = item.get("icon", "")
+
+                if saved_icon:
+                    saved_path = Path(saved_icon)
+                
+                    if not saved_path.is_absolute():
+                        saved_path = Path(__file__).resolve().parent / saved_path
+                
+                    if saved_path.is_file():
+                        icon_path = saved_path
+    
+                build = {
+                    "id": build_id,
+                    "name": str(item.get("name", "")),
+                    "klasse": class_name,
+                    "elite": elite,
+                    "rolle": str(item.get("rolle", "")),
+                    "link": str(item.get("link", "")),
+                    "icon": icon_path,
+                    "zeit": str(item.get("zeit", "")),
+                }
+    
+                BUILDS.append(build)
+                existing_ids.add(build_id)
+                loaded += 1
+    
+            self.refresh_builds()
+    
+            messagebox.showinfo(
+                "Load from DB",
+                f"{loaded} Build(s) geladen.\n"
+                f"{len(chosen) - loaded} bereits vorhandene Builds übersprungen.",
+                parent=dialog
+            )
+    
+            dialog.destroy()
+    
+        tk.Button(
+            buttons,
+            text="Uncheck all",
+            command=uncheck_all
+        ).pack(side="left")
+    
+        tk.Button(
+            buttons,
+            text="Load",
+            command=load_selected
+        ).pack(side="right")
+    
+        
     # ---------- Build erstellen ----------
-
+    
     def create_build(self):
         dialog = tk.Toplevel(self.root)
         dialog.title("Build erstellen")
@@ -1303,6 +1692,7 @@ class Organizer:
                 "rolle": build_role,
                 "link": build_link,
                 "icon": icon_path,
+                "zeit": datetime.now().strftime("%Y-%m-%d %H:%M"),
             })
 
             self.refresh_builds()
